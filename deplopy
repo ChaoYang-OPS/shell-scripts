@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+JOB_NAME=$1
+App_Type=$2
+Suffix_Code=None  # 查找确定路径下有没有应用所选择的包
+File_TMP_WAR=/tmp/${JOB_NAME}/File_TMP_WAR
+File_TMP_JAR=/tmp/${JOB_NAME}/File_TMP_JAR
+Target_JAR_Path=None  # 获取打包完成之后JAR/WAR包完整路径名称名称
+TMP_FileSize=None
+JAR_WAR_NAME=None       # 定义SpringBoot Jar包名称，用来获取打包之后的名称
+JAR_WAR_SIZE=None
+#WAR_NAME=None       # 定义Tomcat war包名称，用来获取打包之后的名称
+#JAR_SIZE=None       # 获取JAR包文件大小
+#WAR_SIZE=None       # WAR包文件大小
+Link_Base_Dir=None
+TIME_VERSION=None
+DEST_Package_Name=None #定义生成包名称
+Pack_Base_Dir=/usr/local/jenkins/package/${JOB_NAME}  # 定义存放包目录
+# 定义workspace
+Target_Path=/usr/local/jenkins/workspace/${JOB_NAME}/target/
+
+# 判断临时文件目录是否存在
+if [[ ! -d /tmp/${JOB_NAME} ]] ;then
+         mkdir  -p /tmp/${JOB_NAME}
+fi
+# 判断存放包目录是否存在
+if [[ ! -d ${Pack_Base_Dir} ]] ;then
+         mkdir  -p $Pack_Base_Dir
+         echo "存放包目录创建成功: $Pack_Base_Dir"
+fi
+# 判断应用的类型
+function Get_App_Type(){
+    if [[ "${App_Type}" == "SpringBoot" ]] ;then
+        App_Type="SpringBoot"
+        echo "App类型为:${App_Type}"
+    elif [[ "${App_Type}" == "Tomcat" ]] ; then
+         App_Type="Tomcat"
+        echo "App类型为${App_Type}"
+    else
+        echo "App类型选择错误"
+     exit 2
+    fi
+}
+# 获取生产包路径及包名称和大小
+function Get_File_Name_Size() {
+    JAR_WAR_NAME=`ls -l ${Target_JAR_Path} | awk -F \/ '{print$NF}'`
+    JAR_WAR_SIZE=`du -sh ${Target_JAR_Path} | awk '{print$1}'`
+    echo "${App_Type}构建生成的包完整路径为: $Target_JAR_Path"
+    echo "${App_Type}构建生成的包为:$JAR_WAR_NAME "
+    echo "${App_Type}构建生成的包大小为:$JAR_WAR_SIZE "
+    echo "开始删除本次构建生成的临时文件"
+}
+# 复制包到目标目录及获取目标完整路径
+function Get_File_Absolute () {
+        # 定义源路径
+        Source_Full_Path=$Target_Path$JAR_WAR_NAME
+        # 定义保存到Package目录下的包名称
+        Target_Dest_Name=`date +%F-%R`-$JAR_WAR_NAME
+        echo "Target_Dest_Name=$Target_Dest_Name"
+        echo "源路径$Source_Full_Path"
+        # 定义复制到目标目录完整路径
+        Target_Dest_Full_Path=$Pack_Base_Dir/$Target_Dest_Name
+        cp $Source_Full_Path  $Target_Dest_Full_Path
+        echo "定义复制到目标目录完整路径: $Target_Dest_Full_Path"
+        [ $? -eq 0 ] && echo "文件复制成功"
+}
+function Find_File_Suffix(){
+       if [[ "${App_Type}" == "Tomcat" ]] ; then
+            echo "##############Tomcat###############"
+            # 将查找文件的结果输出到临时文件并判断临时文件的大小
+            Target_Path=${Target_Path}
+            find ${Target_Path} -name "*.war" > ${File_TMP_WAR}
+            # # 通过查找文件大小来判断，文件后缀名是否存在
+            FileSize=`ls -l "${File_TMP_WAR}" | awk '{print$5}'`
+            echo "$File_TMP_WAR文件大小为: $TMP_FileSize"
+            if [[ "${FileSize}" -eq 0 ]] ; then
+                    echo "Tomcat War包判断不存在"
+                    echo "开始删除$File_TMP_WAR"
+                    rm -rf $File_TMP_WAR && [ $? -eq 0 ] &&   "临时文件$File_TMP_WAR删除成功"
+                    echo "应用类型选择错误"
+            else
+                    find $Target_Path -name "*.war" > "$File_TMP_WAR"
+                    Target_JAR_Path=`cat $File_TMP_WAR`
+#                    JAR_WAR_NAME=`ls -l ${Target_JAR_Path} | awk -F \/ '{print$NF}'`
+#                    JAR_WAR_SIZE=`du -sh ${Target_JAR_Path} | awk '{print$1}'`
+#                    echo "${App_Type}构建生成的包完整路径为: $Target_JAR_Path"
+#                    echo "${App_Type}构建生成的包为:$JAR_WAR_NAME "
+#                    echo "${App_Type}构建生成的包大小为:$JAR_WAR_SIZE "
+#                    echo "开始删除本次构建生成的临时文件"
+                    Get_File_Name_Size  # 调用函数
+                    rm -rf $File_TMP_WAR && [ $? -eq 0 ] && echo "临时文件$File_TMP_WAR删除成功"
+            fi
+       else
+        echo "##############SpringBoot###############"
+        find $Target_Path -name "*.jar" > "$File_TMP_JAR"
+        Target_JAR_Path=`cat $File_TMP_JAR`
+#        JAR_WAR_NAME=`ls -l ${Target_JAR_Path} | awk -F \/ '{print$NF}'`
+#        JAR_WAR_SIZE=`du -sh ${Target_JAR_Path} | awk '{print$1}'`
+#        echo "${App_Type}构建生成的包完整路径为: $Target_JAR_Path"
+#        echo "${App_Type}构建生成的包为:$JAR_WAR_NAME "
+#        echo "${App_Type}构建生成的包大小为:$JAR_WAR_SIZE "
+#        echo "开始删除本次构建生成的临时文件"
+        Get_File_Name_Size
+        rm -rf $File_TMP_JAR && [ $? -eq 0 ]  && echo "临时文件$File_TMP_JAR删除成功"
+       fi
+}
+# 构建镜像文件
+function Build_Images() {
+     if [[ "${App_Type}" == "Tomcat" ]] ; then
+         Image_Base_Dir=/usr/local/jenkins/build_file_ccim
+         cd $Image_Base_Dir
+
+
+     else
+        Image_Base_Dir=/usr/local/jenkins/build_file_ccos
+        cd $Image_Base_Dir
+        Image_Tag=`date +%F`
+        Build_Image_Push=10.215.50.190/ccos_images/ccos_test_images:${Image_Tag}
+        echo "#################$Build_Image_Push"
+        echo "开始构建镜像文件"
+        docker build . -t $Build_Image_Push
+        [ $? -eq 0 ] && echo "镜像构建成功"
+        echo "开始上传镜像文件"
+        docker push $Build_Image_Push
+        [ $? -eq 0 ] && echo "镜像上传成功"
+     fi
+}
+
+function Coyp_Packge() {
+                Find_File_Suffix  # 调用函数
+    if [[ "${App_Type}" == "Tomcat" ]] ; then
+#        # 定义源路径
+#        Source_Full_Path=$Target_Path$JAR_WAR_NAME
+#        # 定义保存到Package目录下的包名称
+#        Target_Dest_Name=`date +%F-%R`-$JAR_WAR_NAME
+#        echo "Target_Dest_Name=$Target_Dest_Name"
+#        echo "源路径$Source_Full_Path"
+#        # 定义复制到目标目录完整路径
+#        Target_Dest_Full_Path=$Pack_Base_Dir/$Target_Dest_Name
+#        cp $Source_Full_Path  $Target_Dest_Full_Path
+#        echo "定义复制到目标目录完整路径: $Target_Dest_Full_Path"
+#        [ $? -eq 0 ] && echo "文件复制成功"
+         Get_File_Absolute  # 调用函数
+         # 判断软连接是否存在, 如何存在就删除
+         Link_Base_Dir=/usr/local/jenkins/build_file_ccim
+         # 定义软连接名称
+         Dest_Link_Name=ROOT.war
+         # 定义软链接完整名称用于判断软链接是否存在
+         Target_Full_Link=$Link_Base_Dir/$Dest_Link_Name
+#          if [  -L $Target_Full_Link ] ; then
+#            echo "软链接存在，删除中$Target_Full_Link"
+#            rm -rf $Target_Full_Link && [ $? -eq 0 ]  && echo "软链接删除成功$Target_Full_Link"
+#            echo "创建新的软链接"
+#            ln -sv $Target_Dest_Full_Path  $Link_Base_Dir/$Dest_Link_Name
+#            [ $? -eq 0 ] && echo "新软连接创建成功 $Target_Full_Link"
+#         else
+#           ln -sv $Target_Dest_Full_Path  $Link_Base_Dir/$Dest_Link_Name
+#           [ $? -eq 0 ] && echo "软连接创建成功 $Target_Full_Link"
+#         fi
+          \cp -f $Target_Dest_Full_Path  $Target_Full_Link
+          echo "文件复制成功"
+
+    else
+#        Source_Full_Path=$Target_Path$JAR_WAR_NAME
+#        Target_Dest_Name=`date +%F-%R`-$JAR_WAR_NAME
+#        echo "Target_Dest_Name=$Target_Dest_Name"
+#        Target_Dest_Full_Path=$Pack_Base_Dir/$Target_Dest_Name
+#        cp $Source_Full_Path  $Target_Dest_Full_Path
+#        echo "定义复制到目标目录完整路径: $Target_Dest_Full_Path"
+#        [ $? -eq 0 ] && echo "文件复制成功"
+         Get_File_Absolute
+         Link_Base_Dir=/usr/local/jenkins/build_file_ccos
+         Dest_Link_Name=call-system.jar
+         Target_Full_Link=$Link_Base_Dir/$Dest_Link_Name
+         # 判断链接是否存在如果存在就删除，不存在就创建，第一次执行脚本默认是创建软连接
+#         if [  -L $Target_Full_Link ] ; then
+##            echo "软链接存在，删除中$Target_Full_Link"
+##            rm -rf $Target_Full_Link && [ $? -eq 0 ]  && echo "软链接删除成功$Target_Full_Link"
+##            echo "创建新的软链接"
+##            ln -sv $Target_Dest_Full_Path  $Link_Base_Dir/$Dest_Link_Name
+##            [ $? -eq 0 ] && echo "新软连接创建成功 $Target_Full_Link"
+##         else
+##           ln -sv $Target_Dest_Full_Path  $Link_Base_Dir/$Dest_Link_Name
+##           [ $? -eq 0 ] && echo "软连接创建成功 $Target_Full_Link"
+##         fi
+          \cp -f $Target_Dest_Full_Path  $Target_Full_Link
+           echo "文件复制成功"
+
+    fi
+}
+Get_App_Type "${JOB_NAME}" "${App_Type}" # 调用函数
+#Find_File_Suffix  # 调用函数
+Coyp_Packge
+Build_Images
+
